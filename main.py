@@ -34,7 +34,7 @@ Base.metadata.create_all(engine)
 Session = sessionmaker(bind=engine)
 
 
-def start(update: Update, _: CallbackContext) -> int:
+def start(update: Update, context: CallbackContext) -> int:
     update.message.reply_text('Чтобы пользоваться сервисом пожалуйста поделитесь контактом.', reply_markup=ReplyKeyboardMarkup(
         keyboard=[
             [
@@ -50,16 +50,24 @@ def help_command(update: Update, context: CallbackContext) -> None:
     message = update.message if update.message else update.callback_query.message
     #message.reply_text('Все комманды: /start, /add_car_wash, /book_car_wash, /view_my_appointments, /view_my_car_washes')
     query = update.callback_query
-    query.message.reply_text("Here is the menu again:", reply_markup=create_menu())
+    query.message.reply_text("Here is the menu again:", reply_markup=create_menu(context))
 
-def create_menu():
-    menu_keyboard = [
-        [InlineKeyboardButton("Get help", callback_data='help')],
-        [InlineKeyboardButton("Добавить мойку", callback_data='add_car_wash')],
-        [InlineKeyboardButton("Забронировать мойку", callback_data='book_car_wash')],
-        [InlineKeyboardButton("Мои записи", callback_data='view_my_appointments')],
-        [InlineKeyboardButton("Список моек", callback_data='view_my_car_washes')]
-    ]
+def create_menu(context: CallbackContext):
+    print('USER_DATA', context.user_data['is_authenticated'])
+    if context.user_data['is_authenticated'] == True:
+        menu_keyboard = [
+            [InlineKeyboardButton("Get help", callback_data='help')],
+            [InlineKeyboardButton("Добавить мойку", callback_data='add_car_wash')],
+            [InlineKeyboardButton("Забронировать мойку", callback_data='book_car_wash')],
+            [InlineKeyboardButton("Мои записи", callback_data='view_my_appointments')],
+            [InlineKeyboardButton("Список моек", callback_data='view_my_car_washes')]
+        ]
+    else:
+        menu_keyboard = [
+            [InlineKeyboardButton("Get help", callback_data='help')],
+            [InlineKeyboardButton("Забронировать мойку", callback_data='book_car_wash')],
+            [InlineKeyboardButton("Мои записи", callback_data='view_my_appointments')],
+        ]
     return InlineKeyboardMarkup(menu_keyboard)
 
 
@@ -85,47 +93,51 @@ def get_contact(update: Update, context: CallbackContext) -> int:
     contact_info = update.message.contact
     if contact_info:
 
-            phone_number = contact_info.phone_number
-            context.user_data['phone_number'] = phone_number
+        phone_number = contact_info.phone_number
+        context.user_data['phone_number'] = phone_number
+        print(context.user_data['phone_number'])
+        if context.user_data['phone_number'] == '+77076139019': # AUTH ADMIN USERS
+            context.user_data['is_authenticated'] = True
+        else:
+            context.user_data['is_authenticated'] = False
+        first_name = contact_info.first_name
+        last_name = contact_info.last_name or "N/A"
+    
+        update.message.reply_text(
+                    "Welcome!",
+                    reply_markup=create_menu(context)  # Display the menu here
+                )
 
-            first_name = contact_info.first_name
-            last_name = contact_info.last_name or "N/A"
-        
+        session = Session()
+        # Check if the user already exists in the database
+        user = session.query(User).filter_by(phone_number=phone_number).first()
+        if user:
             update.message.reply_text(
-                        "Welcome!",
-                        reply_markup=create_menu()  # Display the menu here
-                    )
-
-            session = Session()
-            # Check if the user already exists in the database
-            user = session.query(User).filter_by(phone_number=phone_number).first()
-            if user:
-                update.message.reply_text(
-                "Welcome back!\n\n"
-                # "Все комманды:\n\n"
-                # "/help - get help\n"
-                # "/add_car_wash - Добавить мойку\n"
-                # "/book_car_wash - Забронировать мойку\n"
-                # "/view_my_appointments - Мои записи\n"
-                # "/view_my_car_washes - Список моек\n"
-            )
-                session.close()
-                return ConversationHandler.END
-
-            new_user = User(phone_number=phone_number, name=first_name, last_name=last_name)
-            session.add(new_user)
-            session.commit()
+            "Welcome back!\n\n"
+            # "Все комманды:\n\n"
+            # "/help - get help\n"
+            # "/add_car_wash - Добавить мойку\n"
+            # "/book_car_wash - Забронировать мойку\n"
+            # "/view_my_appointments - Мои записи\n"
+            # "/view_my_car_washes - Список моек\n"
+        )
             session.close()
-
-            update.message.reply_text(
-                "Все комманды:\n\n"
-                # "/help - get help\n"
-                # "/add_car_wash - Добавить мойку\n"
-                # "/book_car_wash - Забронировать мойку\n"
-                # "/view_my_appointments - Мои записи\n"
-                # "/view_my_car_washes - Список моек\n"
-            )
             return ConversationHandler.END
+
+        new_user = User(phone_number=phone_number, name=first_name, last_name=last_name)
+        session.add(new_user)
+        session.commit()
+        session.close()
+
+        update.message.reply_text(
+            "Все комманды:\n\n"
+            # "/help - get help\n"
+            # "/add_car_wash - Добавить мойку\n"
+            # "/book_car_wash - Забронировать мойку\n"
+            # "/view_my_appointments - Мои записи\n"
+            # "/view_my_car_washes - Список моек\n"
+        )
+        return ConversationHandler.END
     else:
         update.message.reply_text("Please share your contact to continue.")
         return GET_CONTACT
@@ -206,6 +218,7 @@ def add_car_wash_prompt(update: Update, context: CallbackContext) -> int:
     # Retrieve the car wash details from context.user_data
     name = context.user_data.get('name')
     contact_phone_number = context.user_data.get('contact_phone_number')
+    print('PARSED NAME IS ', name)
     available_hours = context.user_data.get('available_hours')
     link_2gis = context.user_data.get('link_2gis')
     price = context.user_data.get('price')
@@ -234,7 +247,7 @@ def add_car_wash_prompt(update: Update, context: CallbackContext) -> int:
         message.reply_text('Не удалось добавить мойку. Предоставьте полную информацию.')
     
     query = update.callback_query
-    query.message.reply_text("Here is the menu again:", reply_markup=create_menu())
+    query.message.reply_text("Here is the menu again:", reply_markup=create_menu(context))
     return ConversationHandler.END
 
 
@@ -344,12 +357,12 @@ def finalize_appointment(update: Update, context: CallbackContext) -> int:
         # Here you'd add the appointment to your database
         update.message.reply_text("Your appointment has been booked!")
         query = update.callback_query
-        query.message.reply_text("Here is the menu again:", reply_markup=create_menu())
+        query.message.reply_text("Here is the menu again:", reply_markup=create_menu(context))
         return ConversationHandler.END
     elif user_response == 'cancel':
         update.message.reply_text("Your appointment has been cancelled.")
         query = update.callback_query
-        query.message.reply_text("Here is the menu again:", reply_markup=create_menu())
+        query.message.reply_text("Here is the menu again:", reply_markup=create_menu(context))
         return ConversationHandler.END
     else:
         update.message.reply_text("Please type 'confirm' to finalize your booking or 'cancel' to abort.")
@@ -426,7 +439,7 @@ conv_handler = ConversationHandler(
 )
 
 def main() -> None:
-    
+
     updater = Updater(TOKEN)
     dp = updater.dispatcher
     dp.add_handler(conv_handler)
